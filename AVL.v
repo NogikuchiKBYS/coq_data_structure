@@ -6,16 +6,36 @@ Set Implicit Arguments.
 
 Ltac destruct_first H a := destruct H as [a H].
 
+(*
 Ltac rewrite_maxlr:=
   first [
       rewrite Z.max_l in *; [| solve [omega]] |
       rewrite Z.max_r in *; [| solve [omega]]
     ].
-Ltac rewrite_maxlr_v a b :=
+*)
+Ltac rewrite_maxlr_with a b :=
   first [
       rewrite (Z.max_l a b) in *; [| solve [omega]] |
       rewrite (Z.max_r a b) in *; [| solve [omega]]
     ].
+
+Ltac rewrite_maxlr_hyp :=
+      repeat multimatch reverse goal with
+             | [ H : ?P |- _ ] =>
+               repeat match  P with
+                 context A [Z.max ?x ?y] =>  rewrite_maxlr_with x y
+               end
+        end.
+
+Ltac rewrite_maxlr_goal :=
+  repeat match  goal  with
+         | [ |- ?A ]=>
+           match  A with
+             context B [Z.max ?x ?y] => rewrite_maxlr_with x y
+           end
+         end.
+
+Ltac rewrite_maxlr := rewrite_maxlr_hyp; rewrite_maxlr_goal.
 
 
 Module Type AVL.
@@ -46,12 +66,12 @@ Module Type AVL.
     unfold Irreflexive, Reflexive, complement, Transitive in RI, RT.
     eauto.
   Qed.
-  
+
   Ltac solve_irrefl := exfalso; eapply lt_irrefl; eauto.
   Ltac solve_notsym := exfalso; eapply lt_notsym; eauto.
   Ltac solve_lt_contradiction :=
     exfalso; solve [eapply lt_irrefl; eauto | eapply lt_notsym; eauto].
-  
+
   Lemma compare_eq_iff : forall x y, A.compare x y = Eq <-> x = y.
   Proof.
     intros.
@@ -87,7 +107,7 @@ Module Type AVL.
       intro; subst. eapply lt_irrefl; eauto.
   Defined.
 
-  
+
   Inductive Tree : Type :=
   | leaf : Tree
   | node (value : A.t) (balance : Z) (lc rc : Tree) : Tree.
@@ -97,7 +117,7 @@ Module Type AVL.
     | leaf => 0%Z
     | node _ b _ _ => b
     end.
-  
+
   Inductive TIn : A.t -> Tree -> Prop :=
   | tin_top : forall x c l r, TIn x (node x c l r)
   | tin_left : forall x v c l r, TIn x l -> TIn x (node v c l r)
@@ -160,6 +180,7 @@ Module Type AVL.
     intros.
     reflexivity.
   Qed.
+  Ltac try_decide_depth_node := repeat rewrite depth_node in *; rewrite_maxlr.
 
   (* has correct balancefactor *)
   Inductive Correct : Tree -> Prop :=
@@ -179,7 +200,7 @@ Module Type AVL.
     - inversion 1; auto.
     - constructor; intuition.
   Qed.
-  
+
   Lemma Correct_ind' : forall P : Tree -> Prop,
       P leaf ->
       (forall v l r,
@@ -208,7 +229,7 @@ Module Type AVL.
       Balanced (node v c l r).
   Derive Inversion_clear balanced_node_inv with (forall v c l r, Balanced (node v c l r)) Sort Prop.
   Inductive Valid : Tree -> Prop := valid t : Correct t -> Balanced t -> Valid t.
-  Lemma Valid_ind' 
+  Lemma Valid_ind'
      : forall P : Tree -> Prop,
        P leaf ->
        (forall (v : A.t) (c : Z) (l r : Tree),
@@ -263,7 +284,7 @@ Module Type AVL.
       repeat rewrite flip_rec_depth.
       intuition.
   Qed.
-  
+
   Lemma flip_rec_balanced : forall t, Balanced (flip_rec t) <-> Balanced t.
   Proof.
     intros.
@@ -469,19 +490,7 @@ Module Type AVL.
       inversion Hb using balanced_node_inv; clear Hb.
       intros Hbl Hbr Habs.
       rewrite depth_node.
-      destruct (Z.abs_spec c) as [Habs' | Habs'].
-      + destruct Habs' as [Hle Heq]; rewrite Heq in *; clear Heq.
-        assert (c = 0 \/ c = 1)%Z as Heq; [omega|].
-        destruct Heq as [Heq | Heq]; rewrite Heq in *; clear Heq.
-        * rewrite_maxlr.
-          intuition.
-        * rewrite_maxlr.
-          intuition.
-      + destruct Habs' as [Hlt Heq]; rewrite Heq in *; clear Heq.
-        assert (c = (-1)%Z) as Heq; [omega|].
-        rewrite Heq in *; clear Heq.
-        rewrite_maxlr.
-        intuition.
+      destruct (Z.abs_spec c) as [Habs' | Habs']; rewrite_maxlr; omega.
   Qed.
 
   Ltac solve_correct_child_depth a b c :=
@@ -507,30 +516,22 @@ Module Type AVL.
       solve_correct_child_depth Hcorl H3 H4.
       rewrite correct_node_iff in Hcorl.
       repeat constructor; intuition.
-      repeat rewrite depth_node.
-      repeat rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
     - destruct Hcor as [Hcorl Hcor]; destruct Hcor as [Hcorr Hdep1].
       solve_correct_child_depth Hcorl H3 H4.
       rewrite correct_node_iff in Hcorl.
       repeat constructor; intuition.
-      rewrite depth_node.
-      rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
     - destruct Hcor as [Hcorl Hcor]; destruct Hcor as [Hcorr Hdep1].
       solve_correct_child_depth Hcorl H3 H4.
       rewrite correct_node_iff in Hcorl.
       repeat constructor; intuition.
-      rewrite depth_node.
-      rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
     - destruct Hcor as [Hcorl Hcor]; destruct Hcor as [Hcorr Hdep1].
       solve_correct_child_depth Hcorl H3 H4.
       rewrite correct_node_iff in Hcorl.
       repeat constructor; intuition.
-      rewrite depth_node.
-      rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
   Qed.
 
   Definition lrotate_help v c l rv rc rl rr :=
@@ -625,8 +626,8 @@ Module Type AVL.
   Functional Scheme lrotate_ind := Induction for lrotate Sort Prop.
   Lemma lrotate_reltree (R : relation A.t) `{Tr : Transitive _ R} : forall t, RelTree R t -> RelTree R (lrotate t).
   Proof. intros. functional induction (lrotate t); eauto using lrotate_help_rel. Qed.
- 
-    
+
+
   Lemma lrotate_flip_eq : forall t, lrotate t = flip_rec (rrotate (flip_rec t)).
   Proof.
     intros.
@@ -651,7 +652,7 @@ Module Type AVL.
     rewrite flip_rec_in.
     reflexivity.
   Qed.
-  
+
   Definition rrot_balance v c l r :=
     if (Z_lt_ge_dec (balance l) 0)%Z then rrotate (node v c (lrotate l) r) else rrotate (node v c l r).
 
@@ -693,28 +694,15 @@ Module Type AVL.
     unfold rrotate. unfold rrotate_help.
     simpl.
     assert (depth lr = depth r) as Heq. {
-        repeat rewrite correct_node_iff in HCt.
-        rewrite depth_node in HCt.
-        rewrite_maxlr.
-        omega.
+      repeat rewrite correct_node_iff in HCt.
+      try_decide_depth_node; omega.
     }
     split.
     - repeat constructor; simpl; eauto; try omega.
-      rewrite depth_node.
-      rewrite_maxlr.
-      omega.
-    - repeat rewrite depth_node.
-      rewrite Heq in *; clear Heq.
-      rewrite Z.max_id.
-      rewrite Z.max_l; try omega.
-      rewrite (Z.max_l (depth ll) (depth r)); try omega.
-      rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
+    - try_decide_depth_node; omega.
   Qed.
-  
 
-
-  
   Lemma rrotate_balance_depth_double :
     forall v l r, (balance l = -1)%Z -> Valid l -> Valid r -> Correct (node v 2 l r) ->
                   Valid (rrot_balance v 2 l r) /\
@@ -743,70 +731,37 @@ Module Type AVL.
       subst.
       unfold rrot_balance, rrotate_help; simpl.
       unfold rrotate_help; simpl.
-      rewrite depth_node in Hdept.
-      rewrite_maxlr.
-      rewrite depth_node in Hdept.
-      rewrite_maxlr.
+      repeat rewrite depth_node in Hdept; rewrite_maxlr.
       rewrite Hlrc in *.
       simpl.
       unfold rrotate_help; simpl.
-      repeat rewrite depth_node.
-      rewrite_maxlr_v (depth ll) (depth lrl).
-      rewrite_maxlr_v (depth lrr) (depth r).
-      rewrite_maxlr_v (1 + depth ll)%Z (1 + depth lrr)%Z.
-      rewrite_maxlr_v (depth lrl) (depth lrr).
-      rewrite_maxlr_v (depth ll) (1 + depth lrl)%Z.
-      rewrite_maxlr.
+      try_decide_depth_node.
       repeat constructor; eauto; try solve [omega | simpl; omega].
-      rewrite depth_node; rewrite_maxlr.
-      rewrite depth_node; rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
     - destruct_first Hd Hlrc.
       destruct Hd as [Hd1 Hd2].
       subst.
       unfold rrot_balance; simpl.
       repeat unfold rrotate_help; simpl.
-      rewrite depth_node in Hdept.
-      rewrite_maxlr.
-      rewrite depth_node in Hdept.
-      rewrite_maxlr.
+      repeat rewrite depth_node in Hdept; rewrite_maxlr.
       rewrite Hlrc in *.
       simpl.
       unfold rrotate_help; simpl.
-      repeat rewrite depth_node.
-      rewrite_maxlr_v (depth ll) (depth lrl).
-      rewrite_maxlr_v (depth lrr) (depth r).
-      rewrite_maxlr_v (1 + depth ll)%Z (1 + depth r)%Z.
-      rewrite_maxlr_v (depth lrl) (depth lrr).
-      rewrite_maxlr_v (depth ll) (1 + depth lrl)%Z.
-      rewrite_maxlr.
+      try_decide_depth_node.
       repeat constructor; eauto; try solve [omega | simpl; omega].
-      rewrite depth_node; rewrite_maxlr.
-      rewrite depth_node; rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
     - destruct_first Hd Hlrc.
       destruct Hd as [Hd1 Hd2].
       subst.
       unfold rrot_balance; simpl.
       repeat unfold rrotate_help; simpl.
-      rewrite depth_node in Hdept.
-      rewrite_maxlr.
-      rewrite depth_node in Hdept.
-      rewrite_maxlr.
+      repeat rewrite depth_node in Hdept; rewrite_maxlr.
       rewrite Hlrc in *.
       simpl.
       unfold rrotate_help; simpl.
-      repeat rewrite depth_node.
-      rewrite_maxlr_v (depth ll) (depth lrl).
-      rewrite_maxlr_v (depth lrr) (depth r).
-      rewrite_maxlr_v (1 + depth ll)%Z (1 + depth lrr)%Z.
-      rewrite_maxlr_v (depth lrl) (depth lrr).
-      rewrite_maxlr_v (depth ll) (1 + depth lrr)%Z.
-      rewrite_maxlr.
+      try_decide_depth_node.
       repeat constructor; eauto; try solve [omega | simpl; omega].
-      rewrite depth_node; rewrite_maxlr.
-      rewrite depth_node; rewrite_maxlr.
-      omega.
+      try_decide_depth_node; omega.
   Qed.
 
   Lemma rrotate_balance_depth :
@@ -824,7 +779,7 @@ Module Type AVL.
       apply valid_depth_case in H.
       intuition.
   Qed.
-  
+
   Definition lrot_balance v c l r :=
     if (Z_gt_le_dec (balance r) 0)%Z then lrotate (node v c l (rrotate r)) else lrotate (node v c l r).
 
@@ -881,7 +836,7 @@ Module Type AVL.
     repeat rewrite flip_rec_involutive.
     reflexivity.
   Qed.
-  
+
   Lemma lrotate_balance_depth :
     forall v l r, Valid l -> Valid r -> Correct (node v (-2) l r) ->
                   (balance r <> 0)%Z ->
@@ -938,7 +893,7 @@ Module Type AVL.
         rewrite Z.eqb_neq.
         omega.
     }
-        
+
     intros.
     unfold balance_node.
     rewrite Z.abs_opp.
@@ -1010,7 +965,7 @@ Module Type AVL.
       end
     end.
   Functional Scheme insert'_ind := Induction for insert' Sort Prop.
-  
+
   Lemma flip_rec_insert' : forall t x,
       let (t', grow) := insert' (fun x y => (CompOpp (A.compare x y))) (flip_rec t) x in
       (flip_rec t', grow) = insert' A.compare t x.
@@ -1019,7 +974,7 @@ Module Type AVL.
     induction t as [| v c l IHl r IHr].
     - reflexivity.
     - simpl.
-      destruct (insert' _ (flip_rec l) x) as [l' lg].      
+      destruct (insert' _ (flip_rec l) x) as [l' lg].
       destruct (insert' _ (flip_rec r) x) as [r' rg].
       rewrite <- IHl, <- IHr.
       case A.compare; simpl.
@@ -1052,7 +1007,7 @@ Module Type AVL.
 
 
   Definition insert t x := fst (insert' A.compare t x).
-    
+
   Lemma insert_in : forall cmp t x y,
       (forall x y, cmp x y = Eq <-> x = y) ->
       TIn y (fst(insert' cmp t x)) <-> x = y \/ TIn y t.
@@ -1166,7 +1121,7 @@ Module Type AVL.
       - apply Hlrot in Heq. discriminate.
       - apply Hlrot in Heq. discriminate.
     }
-    
+
     assert (forall v n l r, rrot_balance v n l r <> leaf) as Hrrb. {
       intros.
       unfold rrot_balance.
@@ -1174,7 +1129,7 @@ Module Type AVL.
       - apply Hrrot in Heq. discriminate.
       - apply Hrrot in Heq. discriminate.
     }
-    
+
 
     intros.
     functional induction (insert' cmp t x); simpl; try discriminate.
@@ -1220,12 +1175,12 @@ Module Type AVL.
         repeat destruct Hcaset as [Hcaset | Hcaset];
           destruct_first Hcaset Heqc; rewrite Heqc in *; clear Heqc; simpl.
         + cut (Valid (node v 1 l' r)).
-          * rewrite depth_node. rewrite_maxlr. intuition.
+          * try_decide_depth_node. intuition.
           * repeat constructor; intuition.
         + rewrite Z.leb_le in e.
           exfalso. intuition.
         + cut (Valid (node v 0 l' r)).
-          * rewrite depth_node. rewrite_maxlr. intuition.
+          * try_decide_depth_node; intuition.
           * repeat constructor; intuition.
       - destruct IHp as [IHV IHp]; destruct IHp as [IHdep IHor].
         rewrite Z.leb_le  in e2.
@@ -1246,8 +1201,7 @@ Module Type AVL.
           * inversion HVr; auto.
         + split; auto.
           rewrite Hy.
-          rewrite depth_node. rewrite_maxlr.
-          rewrite depth_node. rewrite_maxlr.
+          repeat rewrite depth_node; rewrite_maxlr.
           omega.
       - exfalso.
         rewrite Z.leb_gt  in e, e2.
@@ -1358,7 +1312,7 @@ Module Type AVL.
     specialize (Hspec x y).
     inversion Hspec; intuition; subst; try discriminate; solve_lt_contradiction.
   Qed.
-  
+
   Theorem insert_spec_avl : forall t x, AVL t -> AVL (insert t x).
   Proof.
     intros.
