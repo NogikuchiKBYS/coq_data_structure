@@ -1,22 +1,15 @@
-Require Import Nat Arith Sumbool BinInt Omega.
+Require Import Nat Arith Omega.
+Require Sumbool.
 Require Import Relations RelationClasses Basics.
-Require Import Orders.
+Require Import Orders OrdersFacts.
 
 Set Implicit Arguments.
 
 Ltac destruct_first H a := destruct H as [a H].
 
-(*
-Ltac rewrite_maxlr:=
-  first [
-      rewrite Z.max_l in *; [| solve [omega]] |
-      rewrite Z.max_r in *; [| solve [omega]]
-    ].
-*)
 Ltac rewrite_maxlr_with a b :=
   first [
-      rewrite (Z.max_l a b) in *; [| solve [omega]] |
-      rewrite (Z.max_r a b) in *; [| solve [omega]]
+      ((rewrite (Z.max_l a b) in *) + (rewrite (Z.max_r a b) in *)); [| solve [omega]]
     ].
 
 Ltac rewrite_maxlr_hyp :=
@@ -39,74 +32,8 @@ Ltac rewrite_maxlr := rewrite_maxlr_hyp; rewrite_maxlr_goal.
 
 
 Module Type AVL.
-  Declare Module A : UsualDecStrOrder'.
-
-  Lemma lt_irrefl : forall x, ~A.lt x x.
-  Proof.
-    intros.
-    destruct A.lt_strorder as [RI RT].
-    unfold Irreflexive, Reflexive, complement in RI.
-    exact (RI x).
-  Qed.
-
-  Lemma lt_notsym : forall x y, ~(A.lt x y /\ A.lt y x).
-  Proof.
-    intros.
-    destruct A.lt_strorder as [RI RT].
-    unfold Irreflexive, Reflexive, complement, Transitive in RI, RT.
-    intro H.
-    apply RI with x.
-    apply RT with y; intuition.
-  Qed.
-
-  Lemma lt_trans : forall x y z, A.lt x y -> A.lt y z -> A.lt x z.
-  Proof.
-    intros.
-    destruct A.lt_strorder as [RI RT].
-    unfold Irreflexive, Reflexive, complement, Transitive in RI, RT.
-    eauto.
-  Qed.
-
-  Ltac solve_irrefl := exfalso; eapply lt_irrefl; eauto.
-  Ltac solve_notsym := exfalso; eapply lt_notsym; eauto.
-  Ltac solve_lt_contradiction :=
-    exfalso; solve [eapply lt_irrefl; eauto | eapply lt_notsym; eauto].
-
-  Lemma compare_eq_iff : forall x y, A.compare x y = Eq <-> x = y.
-  Proof.
-    intros.
-    set (A.compare_spec x y) as Hspec; clearbody Hspec.
-    inversion Hspec; intuition; subst; try discriminate; solve_lt_contradiction.
-  Qed.
-
-  Lemma compare_lt_iff : forall x y, A.compare x y = Lt <-> A.lt x y.
-  Proof.
-    intros.
-    set (A.compare_spec x y) as Hspec; clearbody Hspec.
-    inversion Hspec; intuition; subst; try discriminate; solve_lt_contradiction.
-  Qed.
-
-  Lemma compare_gt_iff : forall x y, A.compare x y = Gt <-> A.lt y x.
-  Proof.
-    intros.
-    set (A.compare_spec x y) as Hspec; clearbody Hspec.
-    inversion Hspec; intuition; subst; try discriminate; solve_lt_contradiction.
-  Qed.
-
-  Definition eq_dec : forall (x y : A.t), {x = y} + {x <> y}.
-    intros.
-    case_eq  (A.compare x y); intro H.
-    - left.
-      rewrite compare_eq_iff in H.
-      assumption.
-    - right.
-      rewrite compare_lt_iff in H.
-      intro; subst. eapply lt_irrefl; eauto.
-    - right.
-      rewrite compare_gt_iff in H.
-      intro; subst. eapply lt_irrefl; eauto.
-  Defined.
-
+  Declare Module A : UsualOrderedTypeFull'.
+  Module  F := OrderedTypeFacts A.
 
   Inductive Tree : Type :=
   | leaf : Tree
@@ -122,39 +49,41 @@ Module Type AVL.
   | tin_top : forall x c l r, TIn x (node x c l r)
   | tin_left : forall x v c l r, TIn x l -> TIn x (node v c l r)
   | tin_right : forall x v c l r, TIn x r -> TIn x (node v c l r).
+  Hint Constructors TIn.
 
   Lemma tin_child : forall x v c l r, TIn x l \/ TIn x r -> TIn x (node v c l r).
   Proof.
     intros.
-    destruct H; eauto using tin_top, tin_left, tin_right.
+    destruct H; auto.
   Qed.
+  Hint Resolve tin_child.
+
 
   Lemma tin_child_iff : forall x v c l r,
       x = v \/ TIn x l \/ TIn x r <-> TIn x (node v c l r).
   Proof.
     intros.
     split; intro H.
-    - repeat destruct H as [H | H]; subst; eauto using tin_top, tin_left, tin_right.
+    - repeat destruct H as [H | H]; subst; auto.
     - inversion H; auto.
   Qed.
 
-  Ltac eauto_tins := eauto using tin_top, tin_left, tin_right, tin_child.
 
   Definition TIn_dec : forall (x : A.t) (t : Tree), {TIn x t} + {~TIn x t}.
     refine (fix f (x : A.t) (t : Tree) :=
               match t with
               | leaf  => right _
               | node v d lc rc =>
-                if eq_dec x v
+                if A.eq_dec x v
                 then left _
-                else if sumbool_or _ _ _ _ (f x lc) (f x rc)
+                else if Sumbool.sumbool_or _ _ _ _ (f x lc) (f x rc)
                      then left _
                      else right _
               end).
     - inversion 1.
     - subst.
       constructor.
-    - eauto_tins.
+    - auto.
     - intro Hin.
       inversion Hin; subst; intuition.
   Defined.
@@ -318,24 +247,38 @@ Module Type AVL.
   Proof.
     intros.
     functional induction (flip_rec t); intuition.
-    - inversion_clear H3; eauto_tins.
-    - inversion_clear H3; eauto_tins.
+    - inversion_clear H3; auto.
+    - inversion_clear H3; auto.
   Qed.
 
   Definition TForall (P : A.t -> Prop) (t : Tree) : Prop := (forall x, TIn x t -> P x).
   Inductive TForall' : (A.t -> Prop) -> Tree -> Prop :=
   | tforall_leaf : forall P, TForall' P leaf
   | tforall_node : forall P v c l r , TForall' P l -> TForall' P r -> P v -> TForall' P (node v c l r).
+  Hint Unfold TForall.
 
   Lemma TForall_iff  : forall P t, TForall P t <-> TForall' P t.
   Proof.
     intros P t.
     split; intro H.
     - unfold TForall in *.
-      induction t; constructor; eauto_tins.
+      induction t; constructor; auto.
     - unfold TForall.
       intro x.
       induction H; inversion 1; auto.
+  Qed.
+
+  Lemma flip_TForall : forall P t, TForall P (flip_rec t) <-> TForall P t.
+  Proof.
+    intros.
+    unfold TForall in *.
+    split; intro H.
+    - intros x Hin.
+      apply H.
+      rewrite flip_rec_in; auto.
+    - intros x Hin.
+      apply H.
+      rewrite <- flip_rec_in; auto.
   Qed.
 
   Inductive RelTree (R : relation A.t) : Tree -> Prop :=
@@ -345,35 +288,17 @@ Module Type AVL.
       TForall (fun y => R y v) l -> TForall (fun y => R v y) r -> RelTree R (node v c l r).
   Derive Inversion_clear reltree_node_inv with (forall R v c l r, RelTree R (node v c l r))
                                                  Sort Prop.
-
+  Hint Constructors RelTree.
   Definition STree t := RelTree A.lt t.
+  Hint Unfold STree.
 
   Lemma flip_rec_reltree : forall R t, RelTree (flip R) (flip_rec t) <-> RelTree R t.
   Proof.
     intros.
     functional induction (flip_rec t).
-    - repeat constructor.
-    - split; intro H.
-      + inversion_clear H as [| ?x ?x ?x ?x Hrr Hrl Hlt Hgt].
-        constructor; intuition.
-        * intros x Hin.
-          apply Hgt.
-          rewrite flip_rec_in.
-          assumption.
-        * intros x Hin.
-          apply Hlt.
-          rewrite flip_rec_in.
-          assumption.
-      + inversion_clear H as [| ?x ?x ?x ?x Hrr Hrl Hlt Hgt].
-        constructor; intuition.
-        * intros x Hin.
-          apply Hgt.
-          rewrite <- flip_rec_in.
-          assumption.
-        * intros x Hin.
-          apply Hlt.
-          rewrite <- flip_rec_in.
-          assumption.
+    - intuition.
+    - split; inversion 1;
+        (rewrite flip_TForall in * + rewrite <- flip_TForall in *); intuition.
   Qed.
 
   Fixpoint search (x : A.t) (t : Tree) : bool :=
@@ -394,22 +319,26 @@ Module Type AVL.
     functional induction (search x t); intro Hst.
     - split; inversion 1.
     - split; auto.
-      rewrite compare_eq_iff in e0; subst.
+      rewrite F.compare_eq_iff in e0; subst.
       constructor.
-    - rewrite compare_lt_iff in e0.
+    - rewrite F.compare_lt_iff in e0.
       inversion Hst as [| v' c l' r' Hsl Hsr_ Hlt Hgt]; subst.
       rewrite IHb; auto.
-      split; eauto_tins.
-      inversion 1; subst; try solve_lt_contradiction.
-      assumption.
-    - rewrite compare_gt_iff in e0.
+      split; auto.
+      inversion 1; subst; auto; try F.order.
+      specialize (Hgt _ H2). simpl in Hgt.
+      F.order.
+    - rewrite F.compare_gt_iff in e0.
       inversion Hst as [| v' c l' r' Hsl Hsr_ Hlt Hgt]; subst.
       rewrite IHb; auto.
-      split; eauto_tins.
-      inversion 1; subst; try solve [intuition | solve_lt_contradiction].
+      split; auto.
+      inversion 1; subst; auto; try F.order.
+      specialize (Hlt _ H2). simpl in Hlt.
+      F.order.
   Qed.
 
   Definition AVL t := Valid t /\ STree t.
+  Hint Unfold AVL.
 
   Definition rrotate_help_comp (x y : Z) : Z * Z :=
     (if Z_lt_le_dec 0 y
@@ -440,16 +369,12 @@ Module Type AVL.
   Proof.
     intros.
     unfold rrotate_help.
-    set (rrotate_help_comp c lc) as p. clearbody p.
-    destruct p as (cx, cy).
+    destruct rrotate_help_comp as [cx cy].
     inversion H as [| v' c' l' r' Hsl Hsr Hlt Hgt]; subst.
     inversion Hsl as [| lv' lc' ll' lr' Hsll Hslr Hllt Hlgt]; subst.
     constructor; auto.
-    - constructor; auto.
-      unfold TForall in *.
-      eauto_tins.
-    - intros x Hin.
-      inversion Hin; subst; eauto_tins.
+    intro x.
+    inversion 1; eauto.
   Qed.
 
   Lemma correct_child_depth_l : forall v c l r,
@@ -510,7 +435,6 @@ Module Type AVL.
     unfold rrotate_help.
     solve_correct_child_depth Hcor H1 H2.
     rewrite correct_node_iff in Hcor.
-
     functional induction (rrotate_help_comp c lc) using rrotate_help_comp_ind'.
     - destruct Hcor as [Hcorl Hcor]; destruct Hcor as [Hcorr Hdep1].
       solve_correct_child_depth Hcorl H3 H4.
@@ -592,9 +516,9 @@ Module Type AVL.
     inversion H0; subst; clear H0.
     inversion H using reltree_node_inv; intros HRrr HRrl Hlt Hgt.
     inversion HRrl using reltree_node_inv; intros HRrl' HRl' Hlt' Hgt'.
-    repeat constructor; unfold TForall in *; eauto_tins.
-    intros x Hin.
-    inversion_clear Hin; eauto_tins.
+    repeat constructor; auto.
+    intro x.
+    inversion 1; eauto.
   Qed.
 
   Definition rrotate t : Tree :=
@@ -614,7 +538,7 @@ Module Type AVL.
     unfold rrotate_help.
     destruct rrotate_help_comp as [cx cy].
     repeat rewrite <- tin_child_iff.
-    intuition.
+    intuition; auto.
   Qed.
 
   Definition lrotate t : Tree :=
@@ -1038,19 +962,13 @@ Module Type AVL.
   Lemma insert_reltree  : forall t x,
       STree t -> STree (fst (insert' A.compare t x)).
   Proof.
-    assert (forall x y, A.compare x y = Eq <-> x = y) as Hspec. {
-      set (A.compare_spec) as Hspec; clearbody Hspec.
-      intros.
-      specialize (Hspec x y).
-      inversion Hspec; intuition; subst; try discriminate; solve_lt_contradiction.
-    }
     destruct A.lt_strorder.
     intros t x.
     functional induction (insert' A.compare t x); intro H; try solve [intuition].
     - repeat constructor.
       + rewrite TForall_iff; constructor.
       + rewrite TForall_iff; constructor.
-    - rewrite compare_lt_iff in e0.
+    - rewrite F.compare_lt_iff in e0.
       apply balance_node_reltree; auto.
       rewrite e1 in IHp.
       simpl in IHp.
@@ -1059,9 +977,9 @@ Module Type AVL.
       intros y Hin.
       fold (fst (l', true)) in Hin.
       rewrite <- e1 in Hin.
-      rewrite insert_in in Hin; auto.
+      rewrite insert_in in Hin; eauto using F.compare_eq_iff.
       destruct Hin; subst; auto.
-    - rewrite compare_lt_iff in e0.
+    - rewrite F.compare_lt_iff in e0.
       inversion_clear H.
       constructor; intuition.
       + rewrite e1 in H.
@@ -1069,9 +987,9 @@ Module Type AVL.
       + intros y Hin.
         fold (fst (l', false)) in Hin.
         rewrite <- e1 in Hin.
-        rewrite insert_in in Hin; auto.
+        rewrite insert_in in Hin; eauto using F.compare_eq_iff.
         destruct Hin; subst; auto.
-    - rewrite compare_gt_iff in e0.
+    - rewrite F.compare_gt_iff in e0.
       apply balance_node_reltree; auto.
       rewrite e1 in IHp.
       simpl in IHp.
@@ -1080,9 +998,9 @@ Module Type AVL.
       intros y Hin.
       fold (fst (r', true)) in Hin.
       rewrite <- e1 in Hin.
-      rewrite insert_in in Hin; auto.
+      rewrite insert_in in Hin; eauto using F.compare_eq_iff.
       destruct Hin; subst; auto.
-    - rewrite compare_gt_iff in e0.
+    - rewrite F.compare_gt_iff in e0.
       inversion_clear H.
       constructor; intuition.
       + rewrite e1 in H.
@@ -1090,7 +1008,7 @@ Module Type AVL.
       + intros y Hin.
         fold (fst (r', false)) in Hin.
         rewrite <- e1 in Hin.
-        rewrite insert_in in Hin; auto.
+        rewrite insert_in in Hin; eauto using F.compare_eq_iff.
         destruct Hin; subst; auto.
   Qed.
 
@@ -1310,7 +1228,7 @@ Module Type AVL.
     set (A.compare_spec) as Hspec; clearbody Hspec.
     intros.
     specialize (Hspec x y).
-    inversion Hspec; intuition; subst; try discriminate; solve_lt_contradiction.
+    inversion Hspec; intuition; subst; try solve [discriminate | F.order].
   Qed.
 
   Theorem insert_spec_avl : forall t x, AVL t -> AVL (insert t x).
