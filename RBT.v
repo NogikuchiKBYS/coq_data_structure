@@ -1,9 +1,10 @@
-Require Import SetoidClass Orders Nat.
+Require Import SetoidClass Orders OrdersFacts Nat.
 Require Import Program.
 Set Implicit Arguments.
 
 Module Def.
   Declare Module A : UsualOrderedTypeFull.
+  Module  F := OrderedTypeFacts A.
   Ltac lt_discriminate := solve [
                               exfalso;
                               (eapply StrictOrder_Irreflexive) + (eapply StrictOrder_Asymmetric);
@@ -28,6 +29,13 @@ Module Def.
   Qed.
   Definition Forall (P : A.t -> Prop) (t : Tree) := forall x, In x t -> P x.
   Hint Unfold Forall.
+  Lemma Forall_leaf : forall P, Forall P leaf.
+  Proof.
+    intros.
+    intro.
+    inversion 1.
+  Qed.
+  Hint Resolve Forall_leaf.
   
   Definition color t := match t with
                         | leaf => B
@@ -81,9 +89,18 @@ Module Def.
              (L : Forall (fun x => Rel x v) l)
              (G : Forall (fun x => Rel v x) r) : RelTree Rel (node v c l r).
   Hint Constructors RelTree.
-  
-  Definition ValidRBT (t : Tree) := RelTree A.lt t /\ Balanced t.
-  Hint Unfold ValidRBT.
+
+  Lemma rel_color_irr : forall R c c' v l r, RelTree R (node v c l r) -> RelTree R (node v c' l r).
+  Proof.
+    intros.
+    inversion H; subst.
+    auto.
+  Qed.
+  Hint Immediate rel_color_irr.
+
+  Inductive ValidRBT : Tree -> Prop :=
+  | validrbt t : RelTree A.lt t -> Balanced t -> color t = B -> ValidRBT t.
+  Hint Constructors ValidRBT.
 End Def.
 
 Module BasicOps.
@@ -434,6 +451,54 @@ Module Balance.
   Qed.
 
 
+  Lemma balance_rl_in : forall x t, In x (balance_rl t) <-> In x t.
+  Proof.
+    intros.
+    unfold balance_rl.
+    destruct t.
+    - reflexivity.
+    - rewrite paint_in, lrot_in.
+      rewrite in_node_iff, rrot_in.
+      intuition; subst; auto.
+      inversion H; auto.
+  Qed.
+  Lemma balance_rr_in : forall x t, In x (balance_rr t) <-> In x t.
+  Proof.
+    intros.
+    unfold balance_rr.
+    destruct t.
+    - reflexivity.
+    - rewrite paint_in, lrot_in.
+      reflexivity.
+  Qed.
+
+
+  Lemma balance_rl_rel : forall Rel `{Transitive A.t Rel} t,
+      RelTree Rel t -> RelTree Rel (balance_rl t).
+  Proof.
+    intros Rel Tr t HR.
+    destruct t; trivial.
+    apply paint_rel.
+    apply lrot_rel; auto.
+    inversion_clear HR.
+    constructor; auto.
+    - apply rrot_rel; auto.
+    - intros x Hin.
+      apply G.
+      apply rrot_in.
+      assumption.
+  Qed.
+  
+  
+  Lemma balance_rr_rel : forall Rel `{Transitive A.t Rel} t,
+      RelTree Rel t -> RelTree Rel (balance_rr t).
+  Proof.
+    intros Rel Tr t HR.
+    unfold balance_rr.
+    apply paint_rel.
+    apply lrot_rel; auto.
+  Qed.
+
   Inductive InsertResult := Ok | Inserted | Collapsed.
 
   Inductive SemiBalanced : Tree -> nat -> Prop :=
@@ -471,6 +536,55 @@ Module Balance.
     end.
   Functional Scheme right_balance_ind := Induction for right_balance Sort Prop.
 
+  Lemma left_balance_in :
+    forall c v l r x, In x (node v c l r) <-> In x (fst (left_balance v l r)).
+  Proof.
+    intros.
+    functional induction (left_balance v l r); unfold fst.
+    - split; inversion 1; eauto.
+    - split; inversion 1; eauto.
+    - rewrite balance_lr_in.
+      split; inversion 1; eauto.
+    - rewrite balance_ll_in.
+      split; inversion 1; eauto.
+    - rewrite paint_in.
+      split; inversion 1; eauto.
+  Qed.
+
+  
+  Lemma right_balance_in :
+    forall c v l r x, In x (node v c l r) <-> In x (fst (right_balance v l r)).
+  Proof.
+    intros.
+    functional induction (right_balance v l r); unfold fst.
+    - split; inversion 1; eauto.
+    - split; inversion 1; eauto.
+    - rewrite balance_rl_in.
+      split; inversion 1; eauto.
+    - rewrite balance_rr_in.
+      split; inversion 1; eauto.
+    - rewrite paint_in.
+      split; inversion 1; eauto.
+  Qed.
+
+
+  Lemma left_balance_rel : forall Rel `{Transitive A.t Rel} c v l r,
+      RelTree Rel (node v c l r) -> RelTree Rel (fst (left_balance v l r)).
+  Proof.
+    intros.
+    functional induction (left_balance v l r); unfold fst;
+      eauto using balance_lr_rel, balance_ll_rel, paint_rel.
+  Qed.
+  Lemma right_balance_rel : forall Rel `{Transitive A.t Rel} c v l r,
+      RelTree Rel (node v c l r) -> RelTree Rel (fst (right_balance v l r)).
+  Proof.
+    intros.
+    functional induction (right_balance v l r); unfold fst;
+      eauto using balance_rl_rel, balance_rr_rel, paint_rel.
+  Qed.
+  
+  
+
   Fixpoint insert' (x : A.t) (t : Tree) : (Tree * InsertResult) :=
     match t with
     | leaf => (node x R leaf leaf, Inserted)
@@ -497,9 +611,90 @@ Module Balance.
              end
       end
     end.
-  
   Functional Scheme insert'_ind := Induction for insert' Sort Prop.
+  
+  Lemma insert'_in : forall a x t, In a (fst (insert' x t)) <-> a = x \/ In a t.
+  Proof.
+    intros a x t.
+    induction t; [| case_eq (A.compare x v); intro Hcmp]; simpl.
+    - split; inversion 1; subst; intuition.
+    - rewrite Hcmp.
+      simpl.
+      rewrite F.compare_eq_iff in Hcmp. subst.
+      split; inversion 1; subst; intuition.
+    - rewrite Hcmp.
+      cut (In a (node v c (fst (insert' x t1)) t2) <-> a = x \/ In a (node v c t1 t2)).
+      + intro Hiff.
+        rewrite <- Hiff.
+        destruct (insert' x t1) as [l' i].
+        destruct i; try reflexivity.
+        * destruct c; reflexivity.
+        * rewrite left_balance_in.
+          reflexivity.
+      + repeat rewrite in_node_iff.
+        rewrite IHt1.
+        intuition.
+    - rewrite Hcmp.
+      cut (In a (node v c t1 (fst (insert' x t2))) <-> a = x \/ In a (node v c t1 t2)).
+      + intro Hiff.
+        rewrite <- Hiff.
+        destruct (insert' x t2) as [r' i].
+        destruct i; try reflexivity.
+        * destruct c; reflexivity.
+        * rewrite right_balance_in.
+          reflexivity.
+      + repeat rewrite in_node_iff.
+        rewrite IHt2.
+        intuition.
+  Qed.
 
+  Lemma insert'_in2 : forall a x t t' i, insert' x t = (t', i) ->
+                                         (In a t' <-> a = x \/ In a t).
+  Proof.
+    intros.
+    rewrite <- insert'_in.
+    rewrite H.
+    unfold fst.
+    reflexivity.
+  Qed.
+  
+  Lemma insert'_rel : forall  x t,
+      RelTree A.lt t -> RelTree A.lt (fst (insert' x t)).
+  Proof.
+    intros x t HR.
+    induction t; try solve [simpl; auto].
+    rewrite insert'_equation.
+    case_eq (A.compare x v); intro Hcmp; inversion Hcmp;
+      try rewrite F.compare_lt_iff in *;
+      try rewrite F.compare_eq_iff in *;
+        try rewrite F.compare_gt_iff in *.
+    - auto.
+    - cut (RelTree A.lt (node v c (fst (insert' x t1)) t2)).
+      + intro H.
+        destruct (insert' x t1) as [l' i].
+        simpl in *.
+        destruct i; [|destruct c|]; auto.
+        apply left_balance_rel with c; auto.
+        apply A.lt_strorder.
+      + inversion_clear HR. intuition.
+        constructor; auto.
+        intro a.
+        rewrite insert'_in.
+        inversion 1; subst; auto.
+    - cut (RelTree A.lt (node v c t1 (fst (insert' x t2)))).
+      + intro H.
+        destruct (insert' x t2) as [r' i].
+        simpl in *.
+        destruct i; [|destruct c|]; auto.
+        apply right_balance_rel with c; auto.
+        apply A.lt_strorder.
+      + inversion_clear HR. intuition.
+        constructor; auto.
+        intro a.
+        rewrite insert'_in.
+        inversion 1; subst; auto.
+  Qed.  
+  
   Lemma insert'_spec : forall x t n, BlackCount t n ->
       match insert' x t with
       | (t', Ok) => BlackCount t' n /\ color t = color t'
@@ -597,3 +792,83 @@ Module Balance.
         inversion HBl.
         repeat constructor; intuition.
   Qed.
+
+  Lemma insert'_not_leaf : forall x t i, insert' x t <> (leaf, i).
+  Proof.
+    intros.
+    cut (In x (fst (insert' x t))).
+    - intro H.
+      intro Heq.
+      rewrite Heq in H.
+      simpl in H.
+      inversion H.
+    - rewrite insert'_in.
+      auto.
+  Qed.
+  
+  Definition insert x t := let (t', _) := insert' x t in
+                           match t' with
+                           | leaf => leaf
+                           | node v _ l r => node v B l r
+                           end.
+  Theorem insert_in : forall a x t, In a (insert x t) <-> a = x \/ In a t.
+  Proof.
+    intros.
+    rewrite <- insert'_in.
+    remember (insert x t) as t'.
+
+    unfold insert in Heqt'.
+    destruct (insert' x t) as [t'' i].
+    simpl.
+    destruct t'' as [| v c l r]; subst.
+    - reflexivity.
+    - split; inversion 1; eauto.
+  Qed.
+
+  Theorem insert_rbt :
+    forall x t, ValidRBT t -> ValidRBT (insert x t).
+  Proof.
+    intros x t HV.
+    inversion_clear  HV as [t' HR HB HC].
+    constructor.
+    - unfold insert.
+      remember (insert' x t) as p.
+      destruct p as [t' i].
+      destruct t' as [| v c l r]; auto.
+      apply rel_color_irr with c.
+      fold (fst (node v c l r, i)).
+      rewrite Heqp.
+      apply insert'_rel.
+      auto.
+    - inversion_clear HB as [n ?t HBC].
+      remember (insert x t) as t'.
+      unfold insert in Heqt'.
+      set (insert'_spec x HBC) as Hspec. clearbody Hspec.
+      case_eq (insert' x t).
+      intros t'' i Heqinsert'.
+      rewrite Heqinsert' in *.
+      case_eq i; intro Hcase; rewrite Hcase in *.
+      + replace t' with t''.
+        * apply (@balanced n).
+          intuition.
+        * rewrite HC in *.
+          apply proj2 in Hspec.
+          destruct t'' as [| v c l r]; auto.
+          simpl in Hspec.
+          congruence.
+      + apply (@balanced (S n)).
+        destruct t'' as  [| v c l r].
+        * simpl in Hspec.
+          intuition. discriminate.
+        * subst.
+          destruct Hspec as [HBC' Hcl].
+          destruct Hcl as [_ Hcl].
+          simpl in Hcl. subst.
+          inversion HBC'; subst.
+          constructor; auto.
+      + destruct Hspec.
+        congruence.
+    - unfold insert.
+      destruct (insert' x t) as [t' _].
+      destruct t'; auto.
+  Qed.    
